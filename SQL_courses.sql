@@ -848,3 +848,261 @@ ORDER BY buy_id;
 				 
 --В таблице city для каждого города указано количество дней, за которые заказ может быть доставлен в этот город (рассматривается только этап Транспортировка). Для тех заказов, которые прошли этап транспортировки, вывести количество дней за которое заказ реально доставлен в город. А также, если заказ доставлен с опозданием, указать количество дней задержки, в противном случае вывести 0. В результат включить номер заказа (buy_id), а также вычисляемые столбцы Количество_дней и Опоздание. Информацию вывести в отсортированном по номеру заказа виде.
 				 
+SELECT buy_step.buy_id,
+       datediff(date_step_end, date_step_beg) AS Количество_дней,
+       IF(DATEDIFF(date_step_end, date_step_beg) > days_delivery, DATEDIFF(date_step_end, date_step_beg) - days_delivery, 0) AS Опоздание
+FROM buy_step
+INNER JOIN step USING (step_id)
+INNER JOIN buy USING (buy_id)
+INNER JOIN client USING (client_id)
+INNER JOIN city USING (city_id)
+WHERE name_step LIKE 'Транспортировка' AND datediff(date_step_end, date_step_beg) IS NOT NULL
+ORDER BY buy_id;
+				 
+--Выбрать всех клиентов, которые заказывали книги Достоевского, информацию вывести в отсортированном по алфавиту виде. В решении используйте фамилию автора, а не его id.
+
+SELECT DISTINCT name_client
+FROM client
+JOIN buy USING (client_id)
+JOIN buy_book USING (buy_id)
+JOIN book USING (book_id)
+JOIN author USING (author_id)
+WHERE author.name_author LIKE "Достоевский%" 
+ORDER BY name_client;
+
+--Сравнить ежемесячную выручку от продажи книг за текущий и предыдущий годы. Для этого вывести год, месяц, сумму выручки в отсортированном сначала по возрастанию месяцев, затем по возрастанию лет виде. Название столбцов: Год, Месяц, Сумма.
+				 
+SELECT YEAR(date_step_end) AS Год,
+       MONTHNAME(date_step_end) AS Месяц,
+       SUM(price*buy_book.amount) AS Сумма
+FROM buy_step
+INNER JOIN buy USING (buy_id)
+INNER JOIN buy_book USING (buy_id)
+INNER JOIN book USING (book_id)
+WHERE date_step_end IS NOT NULL AND step_id = 1
+GROUP BY MONTHNAME(date_step_end), YEAR(date_step_end)
+
+UNION
+
+SELECT YEAR(date_payment) AS Год,
+       MONTHNAME(date_payment) AS Месяц,
+       SUM(price*amount) AS Сумма
+FROM buy_archive
+GROUP BY MONTHNAME(date_payment), YEAR(date_payment)
+HAVING Год IS NOT NULL
+
+ORDER BY Месяц, Год;
+				 
+--Для каждой отдельной книги необходимо вывести информацию о количестве проданных экземпляров и их стоимости за 2020 и 2019 год . Вычисляемые столбцы назвать Количество и Сумма. Информацию отсортировать по убыванию стоимости.
+				 
+SELECT title,
+       buy_book.amount,
+       price
+FROM book
+INNER JOIN buy_book USING (book_id)
+INNER JOIN buy USING (buy_id)
+INNER JOIN buy_step USING (buy_id)
+WHERE date_step_end IS NOT NULL;
+				 
+SELECT title,
+       buy_archive.amount,
+       buy_archive.price
+FROM book
+INNER JOIN buy_archive USING (book_id);
+				 
+SELECT title,
+       SUM(amount) AS Количество,
+       SUM(amount*price) AS Сумма
+FROM(
+    SELECT title,
+       		buy_book.amount,
+       		price
+    FROM book
+    INNER JOIN buy_book USING (book_id)
+    INNER JOIN buy USING (buy_id)
+    INNER JOIN buy_step USING (buy_id)
+    WHERE date_step_end IS NOT NULL AND step_id=1
+    UNION ALL				 
+    SELECT title,
+      		buy_archive.amount,
+       		buy_archive.price
+    FROM book
+    INNER JOIN buy_archive USING (book_id)) AS a
+GROUP BY title
+ORDER BY Сумма DESC;
+								  
+-- Включить нового человека в таблицу с клиентами. Его имя Попов Илья, его email popov@test, проживает он в Москве.
+								  
+INSERT INTO client (name_client, city_id, email)
+SELECT 'Попов Илья', city_id, 'popov@test'
+FROM city
+WHERE name_city LIKE 'Москва';
+
+SELECT * FROM client;
+								  
+--Создать новый заказ для Попова Ильи. Его комментарий для заказа: «Связаться со мной по вопросу доставки».
+								  
+INSERT INTO buy (buy_description, client_id)
+SELECT 'Связаться со мной по вопросу доставки', client_id
+FROM client
+WHERE name_client LIKE 'Попов Илья';
+
+SELECT * FROM buy;
+								  
+--В таблицу buy_book добавить заказ с номером 5. Этот заказ должен содержать книгу Пастернака «Лирика» в количестве двух экземпляров и книгу Булгакова «Белая гвардия» в одном экземпляре.
+								  
+INSERT INTO buy_book (buy_id, book_id, amount)
+SELECT 5, book_id, 2
+FROM book
+INNER JOIN author USING (author_id)
+WHERE name_author LIKE 'Пастернак%' AND title LIKE 'Лирика';
+
+INSERT INTO buy_book (buy_id, book_id, amount)
+SELECT 5, book_id, 1
+FROM book
+INNER JOIN author USING (author_id)
+WHERE name_author LIKE 'Булгаков%' AND title LIKE 'Белая гвардия';
+
+SELECT * FROM buy_book;
+								  
+--Количество тех книг на складе, которые были включены в заказ с номером 5, уменьшить на то количество, которое в заказе с номером 5  указано.
+								  
+UPDATE book
+JOIN buy_book USING (book_id)
+SET book.amount = book.amount - buy_book.amount
+WHERE buy_book.buy_id=5;
+
+SELECT * FROM book;
+								  
+--Создать счет (таблицу buy_pay) на оплату заказа с номером 5, в который включить название книг, их автора, цену, количество заказанных книг и  стоимость. Последний столбец назвать Стоимость. Информацию в таблицу занести в отсортированном по названиям книг виде.
+								  
+CREATE TABLE buy_pay AS
+SELECT title,
+       name_author,
+       price,
+       buy_book.amount,
+       price*buy_book.amount AS Стоимость
+FROM author
+JOIN book USING (author_id)
+JOIN buy_book USING (book_id)
+WHERE buy_id = 5
+ORDER BY title;
+
+SELECT * FROM buy_pay;								  
+								  
+--Создать общий счет (таблицу buy_pay) на оплату заказа с номером 5. Куда включить номер заказа, количество книг в заказе (название столбца Количество) и его общую стоимость (название столбца Итого). Для решения используйте ОДИН запрос.
+								  
+CREATE TABLE buy_pay AS
+SELECT buy_id,
+       SUM(buy_book.amount) AS Количество,
+       SUM(price*buy_book.amount) AS Итого
+FROM book
+JOIN buy_book USING (book_id)
+WHERE buy_id = 5;
+
+SELECT * FROM buy_pay;
+								  
+--В таблицу buy_step для заказа с номером 5 включить все этапы из таблицы step, которые должен пройти этот заказ. В столбцы date_step_beg и date_step_end всех записей занести Null.
+								  
+INSERT INTO buy_step (buy_id, step_id, date_step_beg, date_step_end)
+SELECT 5, step_id, NULL, NULl
+FROM step;
+
+SELECT * FROM buy_step;
+								  
+--В таблицу buy_step занести дату 12.04.2020 выставления счета на оплату заказа с номером 5.								  
+								  
+UPDATE buy_step
+JOIN step USING (step_id)
+SET date_step_beg = '2020-04-12' 
+WHERE buy_id = 5 AND name_step = 'Оплата';
+
+SELECT * FROM buy_step
+WHERE buy_id = 5;
+								  
+--Завершить этап «Оплата» для заказа с номером 5, вставив в столбец date_step_end дату 13.04.2020, и начать следующий этап («Упаковка»), задав в столбце date_step_beg для этого этапа ту же дату.
+								  
+UPDATE buy_step
+JOIN step USING (step_id)
+SET date_step_end = IF(
+    step_id = (SELECT step_id
+               FROM step
+               WHERE name_step = 'Оплата'), '2020-04-13', date_step_end),
+    date_step_beg = IF(
+    step_id = (SELECT step_id
+               FROM step
+               WHERE name_step = 'Упаковка'), '2020-04-13', date_step_beg)
+WHERE buy_id = 5;
+
+SELECT * FROM buy_step
+WHERE buy_id = 5;
+								  
+--Вывести студентов, которые сдавали дисциплину «Основы баз данных», указать дату попытки и результат. Информацию вывести по убыванию результатов тестирования.
+								  
+SELECT name_student,
+       date_attempt,
+       result
+FROM student
+JOIN attempt USING (student_id)
+JOIN subject USING (subject_id)
+WHERE name_subject = 'Основы баз данных'
+ORDER BY result DESC;
+                                  
+--Вывести, сколько попыток сделали студенты по каждой дисциплине, а также средний результат попыток, который округлить до 2 знаков после запятой. Под результатом попытки понимается процент правильных ответов на вопросы теста, который занесен в столбец result.  В результат включить название дисциплины, а также вычисляемые столбцы Количество и Среднее. Информацию вывести по убыванию средних результатов.
+                                  
+SELECT name_subject,
+       COUNT(result) AS Количество,
+       ROUND(AVG(result), 2) AS Среднее
+FROM attempt
+RIGHT JOIN subject USING (subject_id)
+GROUP BY name_subject
+ORDER BY Среднее DESC;
+
+--Вывести студентов (различных студентов), имеющих максимальные результаты попыток. Информацию отсортировать в алфавитном порядке по фамилии студента.                                  
+                                  
+SELECT name_student,
+       result
+FROM student
+JOIN attempt USING (student_id)
+WHERE result = (
+    SELECT MAX(result)
+    FROM attempt)
+ORDER BY name_student;
+                                  
+--Если студент совершал несколько попыток по одной и той же дисциплине, то вывести разницу в днях между первой и последней попыткой. В результат включить фамилию и имя студента, название дисциплины и вычисляемый столбец Интервал. Информацию вывести по возрастанию разницы. Студентов, сделавших одну попытку по дисциплине, не учитывать. 
+                                  
+SELECT name_student,
+       name_subject,
+       DATEDIFF(MAX(date_attempt), MIN(date_attempt)) AS Интервал
+FROM student
+JOIN attempt USING (student_id)
+JOIN subject USING (subject_id)
+GROUP BY name_student, name_subject
+HAVING Интервал <> 0
+ORDER BY Интервал;
+                                       
+--Студенты могут тестироваться по одной или нескольким дисциплинам (не обязательно по всем). Вывести дисциплину и количество уникальных студентов (столбец назвать Количество), которые по ней проходили тестирование . Информацию отсортировать сначала по убыванию количества, а потом по названию дисциплины. В результат включить и дисциплины, тестирование по которым студенты не проходили, в этом случае указать количество студентов 0.
+									   
+SELECT name_subject,
+       COUNT(DISTINCT(st_id.student_id)) AS Количество
+FROM (
+    SELECT name_subject,
+           student_id
+    FROM subject
+    LEFT JOIN attempt USING (subject_id)) AS st_id
+GROUP BY name_subject
+ORDER BY Количество DESC, name_subject;                                       
+                                  
+--Случайным образом отберите 3 вопроса по дисциплине «Основы баз данных». В результат включите столбцы question_id и name_question.
+							 
+SELECT question_id,
+       name_question
+FROM question
+JOIN subject USING (subject_id)
+WHERE name_subject LIKE 'Основы баз данных'
+ORDER BY RAND()
+LIMIT 3;
+							 
+--Вывести вопросы, которые были включены в тест для Семенова Ивана по дисциплине «Основы SQL» 2020-05-17  (значение attempt_id для этой попытки равно 7). Указать, какой ответ дал студент и правильный он или нет (вывести Верно или Неверно). В результат включить вопрос, ответ и вычисляемый столбец  Результат.							 
+
+	
